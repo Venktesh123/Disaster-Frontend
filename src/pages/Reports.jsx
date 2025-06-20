@@ -42,6 +42,9 @@ const Reports = () => {
     { staleTime: 300000 } // 5 minutes
   );
 
+  // Safely get disasters data as array
+  const disastersData = Array.isArray(disasters?.data) ? disasters.data : [];
+
   // Fetch reports based on filters
   const {
     data: reportsData,
@@ -197,22 +200,26 @@ const Reports = () => {
     flagged: XCircle,
   };
 
-  const filteredReports =
-    reportsData?.data?.filter((report) => {
-      const matchesSearch =
-        !filters.search ||
-        report.content.toLowerCase().includes(filters.search.toLowerCase()) ||
-        report.disaster_title
-          ?.toLowerCase()
-          .includes(filters.search.toLowerCase()) ||
-        report.user_id.toLowerCase().includes(filters.search.toLowerCase());
+  // Safely get reports data as array
+  const reportsDataArray = Array.isArray(reportsData?.data)
+    ? reportsData.data
+    : [];
 
-      const matchesStatus =
-        !filters.verification_status ||
-        report.verification_status === filters.verification_status;
+  const filteredReports = reportsDataArray.filter((report) => {
+    const matchesSearch =
+      !filters.search ||
+      report.content.toLowerCase().includes(filters.search.toLowerCase()) ||
+      report.disaster_title
+        ?.toLowerCase()
+        .includes(filters.search.toLowerCase()) ||
+      report.user_id.toLowerCase().includes(filters.search.toLowerCase());
 
-      return matchesSearch && matchesStatus;
-    }) || [];
+    const matchesStatus =
+      !filters.verification_status ||
+      report.verification_status === filters.verification_status;
+
+    return matchesSearch && matchesStatus;
+  });
 
   const stats = {
     total: filteredReports.length,
@@ -330,7 +337,7 @@ const Reports = () => {
             className="px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
           >
             <option value="">All Disasters</option>
-            {disasters?.data?.map((disaster) => (
+            {disastersData.map((disaster) => (
               <option key={disaster.id} value={disaster.id}>
                 {disaster.title}
               </option>

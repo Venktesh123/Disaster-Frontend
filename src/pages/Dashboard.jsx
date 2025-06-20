@@ -69,11 +69,16 @@ const Dashboard = () => {
     { name: "Other", value: 5, color: "#6b7280" },
   ];
 
+  // Safely get disasters data as array
+  const disastersData = Array.isArray(disasters?.data) ? disasters.data : [];
+  const socialMediaData = Array.isArray(socialMedia?.data)
+    ? socialMedia.data
+    : [];
+
   const stats = [
     {
       name: "Active Disasters",
-      value:
-        disasters?.data?.filter((d) => d.status === "active")?.length || 12,
+      value: disastersData.filter((d) => d.status === "active")?.length || 0,
       icon: AlertTriangle,
       color: "text-red-600 dark:text-red-400",
       bgColor: "bg-red-100 dark:bg-red-900/20",
@@ -100,7 +105,7 @@ const Dashboard = () => {
     },
     {
       name: "Social Alerts",
-      value: socialMedia?.data?.length || 8,
+      value: socialMediaData.length || 0,
       icon: MessageSquare,
       color: "text-purple-600 dark:text-purple-400",
       bgColor: "bg-purple-100 dark:bg-purple-900/20",
@@ -125,7 +130,7 @@ const Dashboard = () => {
     return unsubscribe;
   }, [onEvent]);
 
-  const recentDisasters = disasters?.data?.slice(0, 5) || [];
+  const recentDisasters = disastersData.slice(0, 5);
 
   return (
     <div className="space-y-6">

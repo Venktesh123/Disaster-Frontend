@@ -43,6 +43,9 @@ const SocialMedia = () => {
     { staleTime: 300000 }
   );
 
+  // Safely get disasters data as array
+  const disastersData = Array.isArray(disasters?.data) ? disasters.data : [];
+
   // Fetch social media posts
   const {
     data: socialData,
@@ -113,7 +116,8 @@ const SocialMedia = () => {
       "bg-blue-100 text-blue-800 dark:bg-blue-900/50 dark:text-blue-300 border-blue-200 dark:border-blue-800",
   };
 
-  const posts = socialData?.data || [];
+  // Safely get posts data as array
+  const posts = Array.isArray(socialData?.data) ? socialData.data : [];
   const filteredPosts = posts.filter((post) => {
     const matchesPriority =
       !filters.priority || post.priority === filters.priority;
@@ -290,7 +294,7 @@ const SocialMedia = () => {
             className="px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
           >
             <option value="">All Disasters</option>
-            {disasters?.data?.map((disaster) => (
+            {disastersData.map((disaster) => (
               <option key={disaster.id} value={disaster.id}>
                 {disaster.title}
               </option>

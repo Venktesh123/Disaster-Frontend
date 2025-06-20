@@ -81,6 +81,9 @@ const Resources = () => {
     { staleTime: 300000 }
   );
 
+  // Safely get disasters data as array
+  const disastersData = Array.isArray(disasters?.data) ? disasters.data : [];
+
   // Fetch resources
   const {
     data: resourcesData,
@@ -275,19 +278,23 @@ const Resources = () => {
     return colors[resourceType?.color] || colors.blue;
   };
 
-  const filteredResources =
-    resourcesData?.data?.filter((resource) => {
-      const matchesSearch =
-        !filters.search ||
-        resource.name.toLowerCase().includes(filters.search.toLowerCase()) ||
-        resource.location_name
-          .toLowerCase()
-          .includes(filters.search.toLowerCase());
+  // Safely get resources data as array
+  const resourcesDataArray = Array.isArray(resourcesData?.data)
+    ? resourcesData.data
+    : [];
 
-      const matchesType = !filters.type || resource.type === filters.type;
+  const filteredResources = resourcesDataArray.filter((resource) => {
+    const matchesSearch =
+      !filters.search ||
+      resource.name.toLowerCase().includes(filters.search.toLowerCase()) ||
+      resource.location_name
+        .toLowerCase()
+        .includes(filters.search.toLowerCase());
 
-      return matchesSearch && matchesType;
-    }) || [];
+    const matchesType = !filters.type || resource.type === filters.type;
+
+    return matchesSearch && matchesType;
+  });
 
   // Sort by distance if nearby filter is active
   if (filters.nearby && userLocation) {
@@ -395,7 +402,7 @@ const Resources = () => {
             className="px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
           >
             <option value="">All Disasters</option>
-            {disasters?.data?.map((disaster) => (
+            {disastersData.map((disaster) => (
               <option key={disaster.id} value={disaster.id}>
                 {disaster.title}
               </option>
@@ -686,7 +693,7 @@ const Resources = () => {
                       className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
                     >
                       <option value="">Select disaster (optional)</option>
-                      {disasters?.data?.map((disaster) => (
+                      {disastersData.map((disaster) => (
                         <option key={disaster.id} value={disaster.id}>
                           {disaster.title}
                         </option>
