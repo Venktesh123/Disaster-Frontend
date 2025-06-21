@@ -5,7 +5,7 @@ const API_BASE_URL = "https://disaster-1.onrender.com";
 
 const api = axios.create({
   baseURL: `${API_BASE_URL}/api`,
-  timeout: 10000,
+  timeout: 15000,
   headers: {
     "Content-Type": "application/json",
   },
@@ -32,7 +32,7 @@ api.interceptors.request.use(
   }
 );
 
-// Response interceptor
+// Response interceptor with improved error handling
 api.interceptors.response.use(
   (response) => {
     return response;
@@ -41,7 +41,6 @@ api.interceptors.response.use(
     const { response } = error;
 
     if (response?.status === 401) {
-      // Unauthorized - redirect to login
       localStorage.removeItem("token");
       localStorage.removeItem("userId");
       window.location.href = "/login";
@@ -62,7 +61,13 @@ api.interceptors.response.use(
   }
 );
 
-// API endpoints
+// Health API
+export const healthAPI = {
+  check: () => api.get("/health"),
+  testCors: (data) => api.post("/test-cors", data),
+};
+
+// Disasters API - Updated to match API spec
 export const disasterAPI = {
   getAll: (params = {}) => api.get("/disasters", { params }),
   getById: (id) => api.get(`/disasters/${id}`),
@@ -71,6 +76,7 @@ export const disasterAPI = {
   delete: (id) => api.delete(`/disasters/${id}`),
 };
 
+// Reports API - Updated with proper endpoints
 export const reportAPI = {
   getByDisaster: (disasterId, params = {}) =>
     api.get(`/reports/disaster/${disasterId}`, { params }),
@@ -81,6 +87,7 @@ export const reportAPI = {
   delete: (id) => api.delete(`/reports/${id}`),
 };
 
+// Resources API - Updated with geospatial support
 export const resourceAPI = {
   getByDisaster: (disasterId, params = {}) =>
     api.get(`/resources/disaster/${disasterId}`, { params }),
@@ -90,6 +97,7 @@ export const resourceAPI = {
   delete: (id) => api.delete(`/resources/${id}`),
 };
 
+// Social Media API - Updated to match API spec
 export const socialMediaAPI = {
   getByDisaster: (disasterId, params = {}) =>
     api.get(`/social-media/disaster/${disasterId}`, { params }),
@@ -97,18 +105,16 @@ export const socialMediaAPI = {
   getMock: () => api.get("/mock-social-media"),
 };
 
+// Geocoding API
 export const geocodingAPI = {
   geocode: (data) => api.post("/geocoding", data),
 };
 
+// Verification API
 export const verificationAPI = {
   verifyImage: (disasterId, data) =>
     api.post(`/verification/disaster/${disasterId}/image`, data),
   batchVerify: (data) => api.post("/verification/batch", data),
-};
-
-export const healthAPI = {
-  check: () => api.get("/health"),
 };
 
 export default api;

@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useReducer, useEffect } from "react";
-import api from "../services/api";
+import api, { healthAPI } from "../services/api";
 
 const AuthContext = createContext();
 
@@ -55,43 +55,63 @@ export const AuthProvider = ({ children }) => {
       const userId = localStorage.getItem("userId");
 
       if (token && userId) {
-        // Set the token in API headers
-        api.defaults.headers.common["x-user-id"] = userId;
+        try {
+          // Test if the API is accessible and the user is valid
+          api.defaults.headers.common["x-user-id"] = userId;
 
-        // Mock user data based on stored userId
-        const mockUsers = {
-          netrunnerX: {
-            id: "netrunnerX",
-            role: "admin",
-            name: "Net Runner",
-            email: "admin@disaster.com",
-          },
-          reliefAdmin: {
-            id: "reliefAdmin",
-            role: "admin",
-            name: "Relief Admin",
-            email: "relief@disaster.com",
-          },
-          contributor1: {
-            id: "contributor1",
-            role: "contributor",
-            name: "John Contributor",
-            email: "contributor@disaster.com",
-          },
-          citizen1: {
-            id: "citizen1",
-            role: "user",
-            name: "Jane Citizen",
-            email: "citizen@disaster.com",
-          },
-        };
+          // Try to make a health check to validate the connection
+          const healthCheck = await healthAPI.check();
 
-        const user = mockUsers[userId] || mockUsers["citizen1"];
+          if (healthCheck.data.status === "OK") {
+            // Mock user data based on stored userId (since the API doesn't have user endpoints)
+            const mockUsers = {
+              netrunnerX: {
+                id: "netrunnerX",
+                role: "admin",
+                name: "Net Runner",
+                email: "admin@disaster.com",
+              },
+              reliefAdmin: {
+                id: "reliefAdmin",
+                role: "admin",
+                name: "Relief Admin",
+                email: "relief@disaster.com",
+              },
+              contributor1: {
+                id: "contributor1",
+                role: "contributor",
+                name: "John Contributor",
+                email: "contributor@disaster.com",
+              },
+              citizen1: {
+                id: "citizen1",
+                role: "user",
+                name: "Jane Citizen",
+                email: "citizen@disaster.com",
+              },
+              anonymous: {
+                id: "anonymous",
+                role: "user",
+                name: "Anonymous User",
+                email: "anonymous@disaster.com",
+              },
+            };
 
-        dispatch({
-          type: "AUTH_SUCCESS",
-          payload: { user, token },
-        });
+            const user = mockUsers[userId] || mockUsers["anonymous"];
+
+            dispatch({
+              type: "AUTH_SUCCESS",
+              payload: { user, token },
+            });
+          } else {
+            throw new Error("Health check failed");
+          }
+        } catch (error) {
+          console.error("Auth initialization failed:", error);
+          localStorage.removeItem("token");
+          localStorage.removeItem("userId");
+          dispatch({ type: "AUTH_ERROR" });
+        }
       } else {
         dispatch({ type: "AUTH_ERROR" });
       }
@@ -104,7 +124,30 @@ export const AuthProvider = ({ children }) => {
     dispatch({ type: "AUTH_START" });
 
     try {
-      // Mock authentication
+      // Validate available users from API documentation
+      const validUsers = [
+        "netrunnerX",
+        "reliefAdmin",
+        "contributor1",
+        "citizen1",
+        "anonymous",
+      ];
+
+      if (!validUsers.includes(userId)) {
+        throw new Error("Invalid user ID");
+      }
+
+      if (password !== "password") {
+        throw new Error("Invalid password");
+      }
+
+      // Test API connection
+      const healthCheck = await healthAPI.check();
+      if (healthCheck.data.status !== "OK") {
+        throw new Error("API service unavailable");
+      }
+
+      // Mock user data based on API documentation
       const mockUsers = {
         netrunnerX: {
           id: "netrunnerX",
@@ -130,26 +173,29 @@ export const AuthProvider = ({ children }) => {
           name: "Jane Citizen",
           email: "citizen@disaster.com",
         },
+        anonymous: {
+          id: "anonymous",
+          role: "user",
+          name: "Anonymous User",
+          email: "anonymous@disaster.com",
+        },
       };
 
-      if (mockUsers[userId] && password === "password") {
-        const user = mockUsers[userId];
-        const token = `mock_token_${userId}`;
+      const user = mockUsers[userId];
+      const token = `disaster_token_${userId}_${Date.now()}`;
 
-        localStorage.setItem("token", token);
-        localStorage.setItem("userId", userId);
-        api.defaults.headers.common["x-user-id"] = userId;
+      localStorage.setItem("token", token);
+      localStorage.setItem("userId", userId);
+      api.defaults.headers.common["x-user-id"] = userId;
 
-        dispatch({
-          type: "AUTH_SUCCESS",
-          payload: { user, token },
-        });
+      dispatch({
+        type: "AUTH_SUCCESS",
+        payload: { user, token },
+      });
 
-        return { success: true };
-      } else {
-        throw new Error("Invalid credentials");
-      }
+      return { success: true };
     } catch (error) {
+      console.error("Login error:", error);
       dispatch({ type: "AUTH_ERROR" });
       return { success: false, error: error.message };
     }

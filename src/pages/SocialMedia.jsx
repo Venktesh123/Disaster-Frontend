@@ -43,30 +43,71 @@ const SocialMedia = () => {
     { staleTime: 300000 }
   );
 
-  // Safely get disasters data as array
-  const disastersData = Array.isArray(disasters?.data) ? disasters.data : [];
-
-  // Fetch social media posts
+  // Fetch social media posts with proper error handling and debugging
   const {
     data: socialData,
     isLoading,
     refetch,
+    error,
   } = useQuery(
     ["social-media", filters],
     async () => {
-      if (filters.disaster_id) {
-        return await socialMediaAPI.getByDisaster(filters.disaster_id, {
-          keywords: filters.keywords,
+      console.log("🔍 Fetching social media with filters:", filters);
+      try {
+        let response;
+        if (filters.disaster_id) {
+          response = await socialMediaAPI.getByDisaster(filters.disaster_id, {
+            keywords: filters.keywords,
+          });
+        } else {
+          // Try mock endpoint first, then search
+          try {
+            response = await socialMediaAPI.getMock();
+          } catch (mockError) {
+            console.log("Mock API failed, trying search:", mockError);
+            response = await socialMediaAPI.search({
+              keywords:
+                filters.keywords || "emergency,disaster,help,urgent,sos",
+            });
+          }
+        }
+
+        console.log("✅ Social Media API Response:", response);
+        console.log("📊 Response data structure:", {
+          status: response.status,
+          data: response.data,
+          dataType: typeof response.data,
+          isArray: Array.isArray(response.data),
+          keys: response.data ? Object.keys(response.data) : "null",
         });
-      } else {
-        return await socialMediaAPI.search({
-          keywords: filters.keywords || "emergency,disaster,help,urgent,sos",
+        return response;
+      } catch (error) {
+        console.error("❌ Social Media API Error:", error);
+        console.error("Error details:", {
+          message: error.message,
+          response: error.response?.data,
+          status: error.response?.status,
         });
+        throw error;
       }
     },
     {
       refetchInterval: isLiveMode ? refreshInterval * 1000 : false,
       keepPreviousData: true,
+      retry: 2,
+      onError: (error) => {
+        console.error("Social Media Query Error:", error);
+        if (error.response?.status === 401) {
+          toast.error("Please log in to view social media data");
+        } else if (error.response?.status === 500) {
+          toast.error("Server error. Please try again later.");
+        } else {
+          toast.error(`Failed to load social media: ${error.message}`);
+        }
+      },
+      onSuccess: (data) => {
+        console.log("✅ Social Media Query successful, data:", data);
+      },
     }
   );
 
@@ -89,6 +130,7 @@ const SocialMedia = () => {
   }, [onEvent, refetch, soundEnabled]);
 
   const handleRefresh = () => {
+    console.log("🔄 Refreshing social media...");
     refetch();
     toast.success("Social media feed refreshed");
   };
@@ -116,8 +158,53 @@ const SocialMedia = () => {
       "bg-blue-100 text-blue-800 dark:bg-blue-900/50 dark:text-blue-300 border-blue-200 dark:border-blue-800",
   };
 
-  // Safely get posts data as array
-  const posts = Array.isArray(socialData?.data) ? socialData.data : [];
+  // FIXED: Properly handle API response structure
+  let posts = [];
+  let disastersData = [];
+
+  // Handle disasters data
+  if (disasters?.data) {
+    if (disasters.data.success && Array.isArray(disasters.data.data)) {
+      disastersData = disasters.data.data;
+    } else if (Array.isArray(disasters.data)) {
+      disastersData = disasters.data;
+    } else if (disasters.data.data && Array.isArray(disasters.data.data)) {
+      disastersData = disasters.data.data;
+    }
+  }
+
+  // Handle social media data
+  if (socialData?.data) {
+    console.log("🔧 Processing social media response:", socialData.data);
+
+    // Check if response has the expected structure: { success: true, data: [...], meta: {...} }
+    if (socialData.data.success && Array.isArray(socialData.data.data)) {
+      posts = socialData.data.data;
+      console.log("✅ Using structured social media response:", {
+        count: posts.length,
+      });
+    }
+    // Fallback: Check if response.data is directly an array
+    else if (Array.isArray(socialData.data)) {
+      posts = socialData.data;
+      console.log("✅ Using direct array social media response:", {
+        count: posts.length,
+      });
+    }
+    // Fallback: Check if there's a data property that's an array
+    else if (socialData.data.data && Array.isArray(socialData.data.data)) {
+      posts = socialData.data.data;
+      console.log("✅ Using nested data social media response:", {
+        count: posts.length,
+      });
+    } else {
+      console.log(
+        "⚠️ Unexpected social media response structure:",
+        socialData.data
+      );
+    }
+  }
+
   const filteredPosts = posts.filter((post) => {
     const matchesPriority =
       !filters.priority || post.priority === filters.priority;
@@ -134,17 +221,29 @@ const SocialMedia = () => {
   };
 
   const getTimestamp = (timestamp) => {
-    const now = new Date();
-    const postTime = new Date(timestamp);
-    const diffMs = now - postTime;
-    const diffMins = Math.floor(diffMs / 60000);
-    const diffHours = Math.floor(diffMins / 60);
+    if (!timestamp) return "Unknown time";
 
-    if (diffMins < 1) return "Just now";
-    if (diffMins < 60) return `${diffMins}m ago`;
-    if (diffHours < 24) return `${diffHours}h ago`;
-    return postTime.toLocaleDateString();
+    try {
+      const now = new Date();
+      const postTime = new Date(timestamp);
+      const diffMs = now - postTime;
+      const diffMins = Math.floor(diffMs / 60000);
+      const diffHours = Math.floor(diffMins / 60);
+
+      if (diffMins < 1) return "Just now";
+      if (diffMins < 60) return `${diffMins}m ago`;
+      if (diffHours < 24) return `${diffHours}h ago`;
+      return postTime.toLocaleDateString();
+    } catch (error) {
+      return "Unknown time";
+    }
   };
+
+  console.log("📊 Final social media data:", {
+    count: posts.length,
+    filtered: filteredPosts.length,
+    sample: posts[0],
+  });
 
   return (
     <div className="space-y-6">
@@ -195,13 +294,65 @@ const SocialMedia = () => {
 
           <button
             onClick={handleRefresh}
-            className="btn-secondary flex items-center space-x-2"
+            disabled={isLoading}
+            className="btn-secondary flex items-center space-x-2 disabled:opacity-50"
           >
-            <RefreshCw className="h-4 w-4" />
+            <RefreshCw
+              className={`h-4 w-4 ${isLoading ? "animate-spin" : ""}`}
+            />
             <span>Refresh</span>
           </button>
         </div>
       </div>
+
+      {/* Debug Info (only show in development) */}
+      {process.env.NODE_ENV === "development" && (
+        <div className="bg-gray-100 dark:bg-gray-800 rounded-lg p-4 text-sm">
+          <h3 className="font-medium mb-2">Debug Info:</h3>
+          <div className="space-y-1 text-xs">
+            <div>Loading: {isLoading ? "Yes" : "No"}</div>
+            <div>Error: {error ? error.message : "None"}</div>
+            <div>Raw Response: {socialData ? "Received" : "None"}</div>
+            <div>Posts Count: {posts.length}</div>
+            <div>Filtered Posts: {filteredPosts.length}</div>
+            <div>Live Mode: {isLiveMode ? "On" : "Off"}</div>
+          </div>
+        </div>
+      )}
+
+      {/* Error Display */}
+      {error && (
+        <motion.div
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          className="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg p-4"
+        >
+          <div className="flex">
+            <AlertTriangle className="h-5 w-5 text-red-400 mr-3" />
+            <div>
+              <h3 className="text-sm font-medium text-red-800 dark:text-red-200">
+                Unable to load social media data
+              </h3>
+              <p className="mt-1 text-sm text-red-700 dark:text-red-300">
+                {error.response?.data?.error ||
+                  error.message ||
+                  "Please check your connection and try again."}
+              </p>
+              {error.response?.status && (
+                <p className="mt-1 text-xs text-red-600 dark:text-red-400">
+                  Status: {error.response.status}
+                </p>
+              )}
+              <button
+                onClick={handleRefresh}
+                className="mt-2 text-sm text-red-600 dark:text-red-400 hover:text-red-500 dark:hover:text-red-300 underline"
+              >
+                Try again
+              </button>
+            </div>
+          </div>
+        </motion.div>
+      )}
 
       {/* Stats Cards */}
       <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
@@ -421,6 +572,9 @@ const SocialMedia = () => {
                         src={post.image_url}
                         alt="Social media post"
                         className="rounded-lg max-w-full h-48 object-cover"
+                        onError={(e) => {
+                          e.target.style.display = "none";
+                        }}
                       />
                     </div>
                   )}
@@ -471,7 +625,7 @@ const SocialMedia = () => {
               </motion.div>
             ))}
           </AnimatePresence>
-        ) : (
+        ) : !error ? (
           <div className="text-center py-12">
             <MessageSquare className="h-16 w-16 text-gray-400 mx-auto mb-4" />
             <h3 className="text-lg font-medium text-gray-900 dark:text-white mb-2">
@@ -496,7 +650,7 @@ const SocialMedia = () => {
               </button>
             </div>
           </div>
-        )}
+        ) : null}
       </div>
 
       {/* Live Status Indicator */}
@@ -504,7 +658,7 @@ const SocialMedia = () => {
         <motion.div
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
-          className="fixed bottom-6 right-6 bg-green-500 text-white px-4 py-2 rounded-full shadow-lg flex items-center space-x-2"
+          className="fixed bottom-6 right-6 bg-green-500 text-white px-4 py-2 rounded-full shadow-lg flex items-center space-x-2 z-40"
         >
           <motion.div
             animate={{ scale: [1, 1.2, 1] }}

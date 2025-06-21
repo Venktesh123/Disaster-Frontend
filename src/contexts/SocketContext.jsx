@@ -34,11 +34,20 @@ export const SocketProvider = ({ children }) => {
   const connectSocket = () => {
     if (socket?.connected) return;
 
-    const socketInstance = io("https://disaster-1.onrender.com", {
+    // Use the same base URL as the API but for socket connection
+    const socketUrl = "https://disaster-1.onrender.com";
+
+    const socketInstance = io(socketUrl, {
       auth: {
         userId: user?.id,
+        token: localStorage.getItem("token"),
       },
       transports: ["websocket", "polling"],
+      forceNew: true,
+      reconnection: true,
+      reconnectionAttempts: maxReconnectAttempts,
+      reconnectionDelay: 1000,
+      timeout: 20000,
     });
 
     socketInstance.on("connect", () => {
@@ -49,12 +58,19 @@ export const SocketProvider = ({ children }) => {
       // Join general updates room
       socketInstance.emit("join_general");
 
-      toast.success("Connected to real-time updates");
+      toast.success("Connected to real-time updates", {
+        duration: 2000,
+      });
     });
 
-    socketInstance.on("disconnect", () => {
-      console.log("Socket disconnected");
+    socketInstance.on("disconnect", (reason) => {
+      console.log("Socket disconnected:", reason);
       setIsConnected(false);
+
+      if (reason === "io server disconnect") {
+        // The disconnection was initiated by the server, reconnect manually
+        socketInstance.connect();
+      }
     });
 
     socketInstance.on("connect_error", (error) => {
@@ -64,10 +80,16 @@ export const SocketProvider = ({ children }) => {
       if (reconnectAttempts.current < maxReconnectAttempts) {
         reconnectAttempts.current++;
         toast.error(
-          `Connection lost. Retrying... (${reconnectAttempts.current}/${maxReconnectAttempts})`
+          `Connection lost. Retrying... (${reconnectAttempts.current}/${maxReconnectAttempts})`,
+          { duration: 3000 }
         );
       } else {
-        toast.error("Unable to connect to real-time updates");
+        toast.error(
+          "Unable to connect to real-time updates. You can still use the app but won't receive live notifications.",
+          {
+            duration: 5000,
+          }
+        );
       }
     });
 
@@ -75,7 +97,7 @@ export const SocketProvider = ({ children }) => {
       console.log("Socket confirmation:", data);
     });
 
-    // Real-time event handlers
+    // Real-time event handlers based on API documentation
     socketInstance.on("disaster_updated", (data) => {
       console.log("Disaster updated:", data);
 
@@ -85,7 +107,17 @@ export const SocketProvider = ({ children }) => {
         delete: "Disaster removed",
       };
 
-      toast.success(messages[data.type] || "Disaster updated");
+      const message = messages[data.type] || "Disaster updated";
+
+      if (data.type === "create") {
+        toast.error(`🚨 ${message}: ${data.data?.title || "Unknown"}`, {
+          duration: 6000,
+        });
+      } else {
+        toast.success(message, {
+          duration: 4000,
+        });
+      }
     });
 
     socketInstance.on("social_media_updated", (data) => {
@@ -94,8 +126,18 @@ export const SocketProvider = ({ children }) => {
       const urgentPosts = data.posts?.filter(
         (post) => post.priority === "urgent"
       );
+
       if (urgentPosts?.length > 0) {
-        toast.error(`${urgentPosts.length} urgent social media alerts`);
+        toast.error(
+          `🚨 ${urgentPosts.length} urgent social media alerts detected!`,
+          {
+            duration: 8000,
+          }
+        );
+      } else if (data.posts?.length > 0) {
+        toast.success(`${data.posts.length} new social media posts detected`, {
+          duration: 3000,
+        });
       }
     });
 
@@ -108,11 +150,35 @@ export const SocketProvider = ({ children }) => {
         delete: "Resource removed",
       };
 
-      toast.success(messages[data.type] || "Resources updated");
+      const message = messages[data.type] || "Resources updated";
+      toast.success(`${message}: ${data.data?.name || "Unknown resource"}`, {
+        duration: 4000,
+      });
+    });
+
+    socketInstance.on("report_verified", (data) => {
+      console.log("Report verified:", data);
+
+      if (data.status === "verified") {
+        toast.success("Report has been verified", {
+          duration: 4000,
+        });
+      } else if (data.status === "flagged") {
+        toast.error("Report has been flagged for review", {
+          duration: 4000,
+        });
+      }
     });
 
     socketInstance.on("user_count", (count) => {
       setOnlineUsers(count);
+    });
+
+    // Handle urgent notifications
+    socketInstance.on("urgent_notification", (data) => {
+      toast.error(`🚨 URGENT: ${data.message}`, {
+        duration: 10000,
+      });
     });
 
     setSocket(socketInstance);
@@ -128,20 +194,24 @@ export const SocketProvider = ({ children }) => {
   };
 
   const joinDisasterRoom = (disasterId) => {
-    if (socket && isConnected) {
+    if (socket && isConnected && disasterId) {
       socket.emit("join_disaster", disasterId);
+      console.log(`Joined disaster room: ${disasterId}`);
     }
   };
 
   const leaveDisasterRoom = (disasterId) => {
-    if (socket && isConnected) {
+    if (socket && isConnected && disasterId) {
       socket.emit("leave_disaster", disasterId);
+      console.log(`Left disaster room: ${disasterId}`);
     }
   };
 
   const emitEvent = (eventName, data) => {
     if (socket && isConnected) {
       socket.emit(eventName, data);
+    } else {
+      console.warn("Socket not connected, cannot emit event:", eventName);
     }
   };
 
@@ -150,6 +220,7 @@ export const SocketProvider = ({ children }) => {
       socket.on(eventName, callback);
       return () => socket.off(eventName, callback);
     }
+    return () => {};
   };
 
   const value = {

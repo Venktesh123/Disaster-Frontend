@@ -13,6 +13,8 @@ import {
   Calendar,
   Users,
   ExternalLink,
+  Loader,
+  RefreshCw,
 } from "lucide-react";
 import { Link, useSearchParams } from "react-router-dom";
 import { useQuery, useMutation, useQueryClient } from "react-query";
@@ -25,11 +27,12 @@ import toast from "react-hot-toast";
 const Disasters = () => {
   const [searchParams, setSearchParams] = useSearchParams();
   const [showCreateModal, setShowCreateModal] = useState(false);
-  const [selectedDisaster, setSelectedDisaster] = useState(null);
   const [filters, setFilters] = useState({
     search: "",
     tag: "",
     owner_id: "",
+    limit: 50,
+    offset: 0,
   });
 
   const { user } = useAuth();
@@ -41,6 +44,7 @@ const Disasters = () => {
     handleSubmit,
     formState: { errors },
     reset,
+    watch,
   } = useForm();
 
   // Check if we should show create modal from URL params
@@ -57,59 +61,117 @@ const Disasters = () => {
     const unsubscribe = onEvent?.("disaster_updated", (data) => {
       queryClient.invalidateQueries("disasters");
       if (data.type === "create") {
-        toast.success("New disaster reported");
+        toast.success(
+          `New disaster reported: ${data.data?.title || "Unknown"}`
+        );
       } else if (data.type === "update") {
-        toast.success("Disaster updated");
+        toast.success(`Disaster updated: ${data.data?.title || "Unknown"}`);
+      } else if (data.type === "delete") {
+        toast.success("Disaster removed");
       }
     });
 
     return unsubscribe;
   }, [onEvent, queryClient]);
 
-  // Fetch disasters
+  // Fetch disasters with proper error handling and debugging
   const {
     data: disasters,
     isLoading,
     error,
+    refetch,
   } = useQuery(
     ["disasters", filters],
-    () =>
-      disasterAPI.getAll({
-        ...filters,
-        limit: 50,
-      }),
+    async () => {
+      console.log("🔍 Fetching disasters with filters:", filters);
+      try {
+        const response = await disasterAPI.getAll(filters);
+        console.log("✅ Disasters API Response:", response);
+        console.log("📊 Response data structure:", {
+          status: response.status,
+          data: response.data,
+          dataType: typeof response.data,
+          isArray: Array.isArray(response.data),
+          keys: response.data ? Object.keys(response.data) : "null",
+        });
+        return response;
+      } catch (error) {
+        console.error("❌ Disasters API Error:", error);
+        console.error("Error details:", {
+          message: error.message,
+          response: error.response?.data,
+          status: error.response?.status,
+        });
+        throw error;
+      }
+    },
     {
       refetchInterval: 30000,
       keepPreviousData: true,
+      retry: 2,
+      onError: (error) => {
+        console.error("Query Error:", error);
+        if (error.response?.status === 401) {
+          toast.error("Please log in to view disasters");
+        } else if (error.response?.status === 500) {
+          toast.error("Server error. Please try again later.");
+        } else {
+          toast.error(`Failed to load disasters: ${error.message}`);
+        }
+      },
+      onSuccess: (data) => {
+        console.log("✅ Query successful, data:", data);
+      },
     }
   );
 
   // Create disaster mutation
   const createMutation = useMutation(disasterAPI.create, {
-    onSuccess: () => {
+    onSuccess: (response) => {
+      console.log("✅ Disaster created:", response);
       queryClient.invalidateQueries("disasters");
       setShowCreateModal(false);
       reset();
-      toast.success("Disaster reported successfully");
+      const disasterTitle = response.data?.data?.title || "New disaster";
+      toast.success(`Disaster reported successfully: ${disasterTitle}`);
     },
     onError: (error) => {
-      toast.error(error.response?.data?.error || "Failed to create disaster");
+      console.error("❌ Create disaster error:", error);
+      const errorMessage =
+        error.response?.data?.error || "Failed to create disaster";
+      toast.error(errorMessage);
     },
   });
 
-  // Delete disaster mutation
+  // Delete disaster mutation (admin only)
   const deleteMutation = useMutation(disasterAPI.delete, {
     onSuccess: () => {
       queryClient.invalidateQueries("disasters");
       toast.success("Disaster deleted successfully");
     },
     onError: (error) => {
-      toast.error(error.response?.data?.error || "Failed to delete disaster");
+      console.error("❌ Delete disaster error:", error);
+      const errorMessage =
+        error.response?.data?.error || "Failed to delete disaster";
+      toast.error(errorMessage);
     },
   });
 
   const onSubmit = (data) => {
-    createMutation.mutate(data);
+    // Convert tags array to actual array
+    const tags = data.tags
+      ? Object.keys(data.tags).filter((key) => data.tags[key])
+      : [];
+
+    const disasterData = {
+      title: data.title,
+      location_name: data.location_name,
+      description: data.description,
+      tags: tags,
+    };
+
+    console.log("📝 Submitting disaster data:", disasterData);
+    createMutation.mutate(disasterData);
   };
 
   const handleDelete = (id) => {
@@ -119,7 +181,13 @@ const Disasters = () => {
   };
 
   const handleSearch = (e) => {
-    setFilters((prev) => ({ ...prev, search: e.target.value }));
+    setFilters((prev) => ({ ...prev, search: e.target.value, offset: 0 }));
+  };
+
+  const handleRefresh = () => {
+    console.log("🔄 Refreshing disasters...");
+    refetch();
+    toast.success("Disasters refreshed");
   };
 
   const disasterTypes = [
@@ -129,15 +197,13 @@ const Disasters = () => {
     "storm",
     "landslide",
     "drought",
+    "wildfire",
+    "hurricane",
+    "tornado",
+    "tsunami",
+    "volcanic",
     "other",
   ];
-
-  const priorityColors = {
-    urgent: "bg-red-100 text-red-800 dark:bg-red-900/50 dark:text-red-300",
-    high: "bg-orange-100 text-orange-800 dark:bg-orange-900/50 dark:text-orange-300",
-    medium: "bg-blue-100 text-blue-800 dark:bg-blue-900/50 dark:text-blue-300",
-    low: "bg-gray-100 text-gray-800 dark:bg-gray-900/50 dark:text-gray-300",
-  };
 
   const statusColors = {
     active: "bg-red-100 text-red-800 dark:bg-red-900/50 dark:text-red-300",
@@ -146,6 +212,48 @@ const Disasters = () => {
     monitoring:
       "bg-yellow-100 text-yellow-800 dark:bg-yellow-900/50 dark:text-yellow-300",
   };
+
+  // FIXED: Properly handle API response structure based on documentation
+  let disastersData = [];
+  let totalDisasters = 0;
+
+  if (disasters?.data) {
+    console.log("🔧 Processing disasters response:", disasters.data);
+
+    // Check if response has the expected structure: { success: true, data: [...], meta: {...} }
+    if (disasters.data.success && Array.isArray(disasters.data.data)) {
+      disastersData = disasters.data.data;
+      totalDisasters = disasters.data.meta?.total || disastersData.length;
+      console.log("✅ Using structured response:", {
+        count: disastersData.length,
+        total: totalDisasters,
+      });
+    }
+    // Fallback: Check if response.data is directly an array
+    else if (Array.isArray(disasters.data)) {
+      disastersData = disasters.data;
+      totalDisasters = disastersData.length;
+      console.log("✅ Using direct array response:", {
+        count: disastersData.length,
+      });
+    }
+    // Fallback: Check if there's a data property that's an array
+    else if (disasters.data.data && Array.isArray(disasters.data.data)) {
+      disastersData = disasters.data.data;
+      totalDisasters = disasters.data.meta?.total || disastersData.length;
+      console.log("✅ Using nested data response:", {
+        count: disastersData.length,
+      });
+    } else {
+      console.log("⚠️ Unexpected response structure:", disasters.data);
+    }
+  }
+
+  console.log("📊 Final disasters data:", {
+    count: disastersData.length,
+    total: totalDisasters,
+    sample: disastersData[0],
+  });
 
   return (
     <div className="space-y-6">
@@ -157,16 +265,81 @@ const Disasters = () => {
           </h1>
           <p className="text-gray-600 dark:text-gray-400">
             Monitor and manage emergency situations
+            {totalDisasters > 0 && (
+              <span className="ml-2 text-sm">({totalDisasters} total)</span>
+            )}
           </p>
         </div>
-        <button
-          onClick={() => setShowCreateModal(true)}
-          className="btn-primary flex items-center space-x-2"
-        >
-          <Plus className="h-5 w-5" />
-          <span>Report Disaster</span>
-        </button>
+        <div className="flex space-x-3">
+          <button
+            onClick={handleRefresh}
+            disabled={isLoading}
+            className="btn-secondary flex items-center space-x-2 disabled:opacity-50"
+          >
+            <RefreshCw
+              className={`h-4 w-4 ${isLoading ? "animate-spin" : ""}`}
+            />
+            <span>Refresh</span>
+          </button>
+          <button
+            onClick={() => setShowCreateModal(true)}
+            className="btn-primary flex items-center space-x-2"
+          >
+            <Plus className="h-5 w-5" />
+            <span>Report Disaster</span>
+          </button>
+        </div>
       </div>
+
+      {/* Debug Info (only show in development) */}
+      {process.env.NODE_ENV === "development" && (
+        <div className="bg-gray-100 dark:bg-gray-800 rounded-lg p-4 text-sm">
+          <h3 className="font-medium mb-2">Debug Info:</h3>
+          <div className="space-y-1 text-xs">
+            <div>Loading: {isLoading ? "Yes" : "No"}</div>
+            <div>Error: {error ? error.message : "None"}</div>
+            <div>Raw Response: {disasters ? "Received" : "None"}</div>
+            <div>Data Count: {disastersData.length}</div>
+            <div>
+              User: {user?.id} ({user?.role})
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Error Display */}
+      {error && (
+        <motion.div
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          className="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg p-4"
+        >
+          <div className="flex">
+            <AlertTriangle className="h-5 w-5 text-red-400 mr-3" />
+            <div>
+              <h3 className="text-sm font-medium text-red-800 dark:text-red-200">
+                Unable to load disasters
+              </h3>
+              <p className="mt-1 text-sm text-red-700 dark:text-red-300">
+                {error.response?.data?.error ||
+                  error.message ||
+                  "Please check your connection and try again."}
+              </p>
+              {error.response?.status && (
+                <p className="mt-1 text-xs text-red-600 dark:text-red-400">
+                  Status: {error.response.status}
+                </p>
+              )}
+              <button
+                onClick={handleRefresh}
+                className="mt-2 text-sm text-red-600 dark:text-red-400 hover:text-red-500 dark:hover:text-red-300 underline"
+              >
+                Try again
+              </button>
+            </div>
+          </div>
+        </motion.div>
+      )}
 
       {/* Filters */}
       <div className="bg-white dark:bg-gray-800 rounded-lg p-6 shadow-sm border border-gray-200 dark:border-gray-700">
@@ -184,7 +357,11 @@ const Disasters = () => {
           <select
             value={filters.tag}
             onChange={(e) =>
-              setFilters((prev) => ({ ...prev, tag: e.target.value }))
+              setFilters((prev) => ({
+                ...prev,
+                tag: e.target.value,
+                offset: 0,
+              }))
             }
             className="px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
           >
@@ -198,7 +375,11 @@ const Disasters = () => {
           <select
             value={filters.owner_id}
             onChange={(e) =>
-              setFilters((prev) => ({ ...prev, owner_id: e.target.value }))
+              setFilters((prev) => ({
+                ...prev,
+                owner_id: e.target.value,
+                offset: 0,
+              }))
             }
             className="px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
           >
@@ -228,8 +409,8 @@ const Disasters = () => {
                 </div>
               </motion.div>
             ))
-          ) : disasters?.data?.length > 0 ? (
-            disasters.data.map((disaster) => (
+          ) : disastersData.length > 0 ? (
+            disastersData.map((disaster) => (
               <motion.div
                 key={disaster.id}
                 initial={{ opacity: 0, y: 20 }}
@@ -293,17 +474,19 @@ const Disasters = () => {
                           {new Date(disaster.created_at).toLocaleDateString()}
                         </span>
                       </div>
-                      {disaster.reports && (
-                        <div className="flex items-center">
-                          <Users className="h-4 w-4 mr-1" />
-                          <span>{disaster.reports[0]?.count || 0} reports</span>
-                        </div>
-                      )}
+                      {disaster.reports &&
+                        disaster.reports[0]?.count !== undefined && (
+                          <div className="flex items-center">
+                            <Users className="h-4 w-4 mr-1" />
+                            <span>{disaster.reports[0].count} reports</span>
+                          </div>
+                        )}
                     </div>
                     <div className="flex items-center space-x-2">
                       <Link
                         to={`/disasters/${disaster.id}`}
                         className="p-2 text-gray-600 dark:text-gray-400 hover:text-primary-600 dark:hover:text-primary-400 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg transition-colors"
+                        title="View details"
                       >
                         <Eye className="h-4 w-4" />
                       </Link>
@@ -312,18 +495,26 @@ const Disasters = () => {
                         <>
                           <button
                             onClick={() => {
-                              /* TODO: Edit modal */
+                              // TODO: Implement edit functionality
+                              toast.info("Edit functionality coming soon");
                             }}
                             className="p-2 text-gray-600 dark:text-gray-400 hover:text-blue-600 dark:hover:text-blue-400 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg transition-colors"
+                            title="Edit disaster"
                           >
                             <Edit className="h-4 w-4" />
                           </button>
                           {user?.role === "admin" && (
                             <button
                               onClick={() => handleDelete(disaster.id)}
-                              className="p-2 text-gray-600 dark:text-gray-400 hover:text-red-600 dark:hover:text-red-400 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg transition-colors"
+                              disabled={deleteMutation.isLoading}
+                              className="p-2 text-gray-600 dark:text-gray-400 hover:text-red-600 dark:hover:text-red-400 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg transition-colors disabled:opacity-50"
+                              title="Delete disaster"
                             >
-                              <Trash2 className="h-4 w-4" />
+                              {deleteMutation.isLoading ? (
+                                <Loader className="h-4 w-4 animate-spin" />
+                              ) : (
+                                <Trash2 className="h-4 w-4" />
+                              )}
                             </button>
                           )}
                         </>
@@ -333,7 +524,7 @@ const Disasters = () => {
                 </div>
               </motion.div>
             ))
-          ) : (
+          ) : !error ? (
             <div className="col-span-full text-center py-12">
               <AlertTriangle className="h-16 w-16 text-gray-400 mx-auto mb-4" />
               <h3 className="text-lg font-medium text-gray-900 dark:text-white mb-2">
@@ -342,7 +533,7 @@ const Disasters = () => {
               <p className="text-gray-600 dark:text-gray-400 mb-6">
                 {filters.search || filters.tag || filters.owner_id
                   ? "Try adjusting your filters to see more results."
-                  : "No disasters have been reported yet."}
+                  : "No disasters have been reported yet. Be the first to report one!"}
               </p>
               <button
                 onClick={() => setShowCreateModal(true)}
@@ -351,7 +542,7 @@ const Disasters = () => {
                 Report First Disaster
               </button>
             </div>
-          )}
+          ) : null}
         </AnimatePresence>
       </div>
 
@@ -384,7 +575,13 @@ const Disasters = () => {
                     </label>
                     <input
                       type="text"
-                      {...register("title", { required: "Title is required" })}
+                      {...register("title", {
+                        required: "Title is required",
+                        minLength: {
+                          value: 3,
+                          message: "Title must be at least 3 characters",
+                        },
+                      })}
                       className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
                       placeholder="Brief description of the disaster"
                     />
@@ -403,6 +600,10 @@ const Disasters = () => {
                       type="text"
                       {...register("location_name", {
                         required: "Location is required",
+                        minLength: {
+                          value: 3,
+                          message: "Location must be at least 3 characters",
+                        },
                       })}
                       className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
                       placeholder="City, State or specific address"
@@ -422,6 +623,10 @@ const Disasters = () => {
                       rows={4}
                       {...register("description", {
                         required: "Description is required",
+                        minLength: {
+                          value: 10,
+                          message: "Description must be at least 10 characters",
+                        },
                       })}
                       className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
                       placeholder="Detailed description of the situation, damage, and immediate needs..."
@@ -435,15 +640,14 @@ const Disasters = () => {
 
                   <div>
                     <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                      Tags
+                      Disaster Type
                     </label>
-                    <div className="grid grid-cols-2 gap-2">
+                    <div className="grid grid-cols-2 gap-2 max-h-40 overflow-y-auto">
                       {disasterTypes.map((type) => (
                         <label key={type} className="flex items-center">
                           <input
                             type="checkbox"
-                            value={type}
-                            {...register("tags")}
+                            {...register(`tags.${type}`)}
                             className="rounded border-gray-300 text-primary-600 shadow-sm focus:ring-primary-500"
                           />
                           <span className="ml-2 text-sm text-gray-700 dark:text-gray-300 capitalize">
@@ -467,9 +671,14 @@ const Disasters = () => {
                       disabled={createMutation.isLoading}
                       className="flex-1 btn-primary disabled:opacity-50"
                     >
-                      {createMutation.isLoading
-                        ? "Reporting..."
-                        : "Report Disaster"}
+                      {createMutation.isLoading ? (
+                        <div className="flex items-center justify-center">
+                          <Loader className="h-4 w-4 animate-spin mr-2" />
+                          Reporting...
+                        </div>
+                      ) : (
+                        "Report Disaster"
+                      )}
                     </button>
                   </div>
                 </form>
